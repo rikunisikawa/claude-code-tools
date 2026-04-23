@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Stop hook: セッション終了時にサマリーをJSONLに追記する
-# stdinからJSON: { "session_id", "transcript", ... }
+# stdin: { "session_id", "transcript_path", "cwd", ... }
 
 import json
 import os
@@ -15,18 +15,30 @@ except Exception:
     sys.exit(0)
 
 session_id = data.get("session_id", "")
-transcript = data.get("transcript", [])
+transcript_path = data.get("transcript_path", "")
 
 tool_counts: dict = {}
-for item in transcript:
-    if isinstance(item, dict) and item.get("type") == "tool_use":
-        t = item.get("name", "unknown")
-        tool_counts[t] = tool_counts.get(t, 0) + 1
+if transcript_path and os.path.exists(transcript_path):
+    with open(transcript_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                msg = item.get("message", {})
+                if isinstance(msg, dict):
+                    for block in msg.get("content", []):
+                        if isinstance(block, dict) and block.get("type") == "tool_use":
+                            t = block.get("name", "unknown")
+                            tool_counts[t] = tool_counts.get(t, 0) + 1
+            except Exception:
+                continue
 
 record = {
     "ts": datetime.now(timezone.utc).isoformat(),
     "session_id": session_id,
-    "cwd": os.getcwd(),
+    "cwd": data.get("cwd", os.getcwd()),
     "total_tools": sum(tool_counts.values()),
     "tool_counts": tool_counts,
 }
